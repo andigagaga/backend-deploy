@@ -6,16 +6,26 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const multer = require("multer");
 const path = require("path");
+const midtransClient = require("midtrans-client");
+const { v4: uuidv4 } = require("uuid");
 
 app.use(express.json());
 app.use(cors());
 
 // connection database mongodb
 mongoose.connect(
-  "mongodb+srv://guswandi:01082003@cluster0.bwygkxi.mongodb.net/e-commerce?retryWrites=true&w=majority&appName=Cluster0"
+  "mongodb+srv://guswandi:01082003@cluster0.bwygkxi.mongodb.net/e-commerce"
 );
 
+// initial snap transaction
+let snap = new midtransClient.Snap({
+  isProduction: false,
+  serverKey: "SB-Mid-server-Tx4EkVBCmNBScVWk3RqfAoPO",
+  clientKey: "SB-Mid-client-1Bmoz6gKq0WGRPKm",
+});
+
 // API creation
+
 app.get("/", (req, res) => {
   res.send("Express App is running");
 });
@@ -113,7 +123,7 @@ app.post("/addproduct", async (req, res) => {
   });
   console.log(product);
   await product.save();
-  console.log("Savede");
+  console.log("Saved");
   res.json({
     success: true,
     name: req.body.name,
@@ -291,6 +301,53 @@ app.get("/productsbycategory", async (req, res) => {
         .json({ success: false, message: "Product not found" });
     }
     res.json({ success: true, products });
+  } catch (error) {
+    console.log("Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
+// endpoint midtrans/pembayaran
+app.post("/checkout", fetchUser, async (req, res) => {
+  // fect data usernya
+  let user = await Users.findOne({ _id: req.user.id });
+  console.log(user);
+
+  try {
+    const { gross_amount } = req.body;
+
+    if (isNaN(gross_amount)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Gross amount must be a number" });
+    }
+
+    const orderId = uuidv4();
+
+    let parameter = {
+      transaction_details: {
+        order_id: orderId,
+        gross_amount: Number(gross_amount),
+      },
+      credit_card: {
+        secure: true,
+      },
+      customer_details: {
+        first_name: user.name,
+        last_name: user.name,
+        email: user.email,
+        phone: "08111222333",
+      },
+    };
+    snap.createTransaction(parameter).then((transaction) => {
+      // Ambil token transaksi di sini
+      let transactionToken = transaction.token;
+      let url = transaction.redirect_url;
+      console.log("transactionToken:", transactionToken);
+
+      // Kirim token sebagai respons
+      res.json({ success: true, token: transactionToken, url: url });
+    });
   } catch (error) {
     console.log("Error:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
